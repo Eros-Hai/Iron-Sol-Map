@@ -1,0 +1,1013 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Iron Sols Atlas</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      --bg: #0c1111;
+      --metal: #18201f;
+      --metal-2: #222b29;
+      --line: #59635b;
+      --brass: #d7ae56;
+      --cream: #e9e3cb;
+      --rust: #a45140;
+      --muted: #9da59c;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body { height: 100%; }
+
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--cream);
+      font: 14px/1.4 "Bahnschrift", "Arial Narrow", system-ui, sans-serif;
+    }
+
+    .map-wrap {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-width: 0;
+      min-height: 0;
+      background:
+        radial-gradient(circle at 50% 40%, rgba(124, 138, 119, .12), transparent 45%),
+        linear-gradient(135deg, #111918, #0b1010 60%, #121817);
+    }
+
+    .viewport {
+      position: absolute;
+      inset: 0;
+      overflow: hidden;
+      cursor: grab;
+      touch-action: none;
+      background-image:
+        linear-gradient(rgba(215,174,86,.055) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(215,174,86,.055) 1px, transparent 1px);
+      background-size: 36px 36px;
+    }
+
+    .viewport.dragging { cursor: grabbing; }
+
+    .stage {
+      position: absolute;
+      left: 0;
+      top: 0;
+      transform-origin: 0 0;
+    }
+
+    .tile-layer {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+    }
+
+    .overview {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: auto;
+      height: auto;
+      transform-origin: 0 0;
+      display: block;
+      user-select: none;
+      pointer-events: none;
+      image-rendering: auto;
+    }
+
+    .tile-layer { pointer-events: none; }
+
+    .drawing-layer {
+      position: absolute;
+      left: 0;
+      top: 0;
+      width: 100%;
+      height: 100%;
+      pointer-events: none;
+      touch-action: none;
+    }
+
+    .viewport.drawing-mode,
+    .viewport.drawing {
+      cursor: crosshair;
+    }
+
+    /* Keep the drawing controls deliberately plain: they are functional
+       controls, not a second interface layered over the map. */
+    .drawing-toggle {
+      position: absolute;
+      right: 14px;
+      bottom: 14px;
+      z-index: 3;
+      width: 36px;
+      height: 30px;
+      padding: 0;
+      border: 1px solid #68716a;
+      border-radius: 2px;
+      background: #202725;
+      color: #e9e3cb;
+      cursor: pointer;
+      font-size: 18px;
+      line-height: 1;
+      user-select: none;
+      -webkit-user-select: none;
+      -webkit-user-drag: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .drawing-toggle:hover,
+    .drawing-tools button:hover {
+      background: #303a35;
+    }
+
+    .drawing-toggle:focus,
+    .drawing-toggle:focus-visible {
+      outline: none;
+    }
+
+    .drawing-tools {
+      position: absolute;
+      right: 14px;
+      bottom: 52px;
+      z-index: 3;
+      display: grid;
+      gap: 8px;
+      width: 230px;
+      padding: 10px;
+      border: 1px solid #68716a;
+      border-radius: 2px;
+      background: #202725;
+      color: #e9e3cb;
+      font-size: 12px;
+    }
+
+    .drawing-tools[hidden] { display: none; }
+
+    .drawing-tools-title {
+      font-weight: 700;
+    }
+
+    .drawing-tool-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .drawing-tool-row label {
+      color: #b7c0b4;
+    }
+
+    .drawing-tool-row output {
+      color: #e9e3cb;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .drawing-tool-row input[type="range"] {
+      width: 110px;
+    }
+
+    .drawing-tools input[type="color"] {
+      width: 32px;
+      height: 22px;
+      padding: 0;
+    }
+
+    .drawing-tools-actions {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 5px;
+    }
+
+    .drawing-tools button {
+      min-height: 26px;
+      padding: 3px 5px;
+      border: 1px solid #68716a;
+      border-radius: 2px;
+      background: #2a322f;
+      color: #e9e3cb;
+      cursor: pointer;
+      font: 11px/1.2 system-ui, sans-serif;
+    }
+
+    .drawing-tools button.active {
+      background: #6a3f37;
+    }
+
+    .drawing-tools button:disabled {
+      cursor: not-allowed;
+      opacity: .45;
+    }
+
+    .drawing-tools-help,
+    .drawing-tools-message {
+      color: #b7c0b4;
+      font-size: 10px;
+      line-height: 1.35;
+    }
+
+    .drawing-tools-message {
+      min-height: 14px;
+      color: #e9e3cb;
+    }
+
+    .tile {
+      position: absolute;
+      display: block;
+      max-width: none;
+      user-select: none;
+      pointer-events: none;
+      image-rendering: auto;
+    }
+
+  </style>
+</head>
+<body>
+  <main class="map-wrap">
+    <div class="viewport" id="viewport" aria-label="Interactive Iron Sols map">
+      <div class="stage" id="stage">
+        <img class="overview" id="overview" alt="">
+        <div class="tile-layer" id="tileLayer"></div>
+        <canvas class="drawing-layer" id="drawingCanvas" aria-hidden="true"></canvas>
+      </div>
+    </div>
+    <button class="drawing-toggle" id="drawingToggle" type="button" tabindex="-1" draggable="false" title="Drawing tools" aria-label="Open drawing tools" aria-pressed="false">✎</button>
+    <section class="drawing-tools" id="drawingTools" hidden aria-label="Drawing tools">
+      <div class="drawing-tools-title">Drawing tools</div>
+      <div class="drawing-tool-row">
+        <label for="drawingColor">Color</label>
+        <input id="drawingColor" type="color" value="#e7b85c">
+      </div>
+      <div class="drawing-tool-row">
+        <label for="drawingWidth">Brush size <output id="drawingWidthValue">48</output></label>
+        <input id="drawingWidth" type="range" min="8" max="180" step="4" value="48">
+      </div>
+      <div class="drawing-tools-actions">
+        <button id="undoDrawing" type="button" disabled>Undo</button>
+        <button id="redoDrawing" type="button" disabled>Redo</button>
+        <button id="eraserToggle" type="button">Erase</button>
+        <button id="saveDrawing" type="button">Save</button>
+        <button id="loadDrawing" type="button">Load</button>
+        <button id="clearDrawing" type="button">Clear</button>
+      </div>
+      <div class="drawing-tools-help">D tools · E eraser · Shift reverses the tool · Ctrl/Cmd+Z undo</div>
+      <div class="drawing-tools-message" id="drawingMessage" role="status"></div>
+      <input id="drawingFile" type="file" accept="application/json,.json" hidden>
+    </section>
+  </main>
+
+  <script src="data/map-data.js"></script>
+  <script>
+    (() => {
+      "use strict";
+
+      const map = window.IRON_SOLS_MAP;
+      if (!map) {
+        console.error("Iron Sols map data is missing.");
+        return;
+      }
+
+      const viewport = document.getElementById("viewport");
+      const stage = document.getElementById("stage");
+      const overview = document.getElementById("overview");
+      const tileLayer = document.getElementById("tileLayer");
+      const drawingCanvas = document.getElementById("drawingCanvas");
+      const drawingContext = drawingCanvas.getContext("2d");
+      const drawingToggle = document.getElementById("drawingToggle");
+      const drawingTools = document.getElementById("drawingTools");
+      const drawingColorInput = document.getElementById("drawingColor");
+      const drawingWidthInput = document.getElementById("drawingWidth");
+      const drawingWidthValue = document.getElementById("drawingWidthValue");
+      const undoDrawingButton = document.getElementById("undoDrawing");
+      const redoDrawingButton = document.getElementById("redoDrawing");
+      const eraserToggle = document.getElementById("eraserToggle");
+      const saveDrawingButton = document.getElementById("saveDrawing");
+      const loadDrawingButton = document.getElementById("loadDrawing");
+      const clearDrawingButton = document.getElementById("clearDrawing");
+      const drawingFile = document.getElementById("drawingFile");
+      const drawingMessage = document.getElementById("drawingMessage");
+
+      const bounds = map.bounds;
+      // Keep the DOM stage the size of the small overview image. World-space
+      // coordinates are converted into this stage space before positioning
+      // tiles. This avoids creating a 60k-by-35k CSS layer.
+      const overviewWidth = Math.max(
+        1,
+        Number(map.overviewWidth) || Math.round(bounds.width / map.tileWidth * 80)
+      );
+      const overviewHeight = Math.max(
+        1,
+        Number(map.overviewHeight) || Math.round(bounds.height / map.tileHeight * 45)
+      );
+      const stageScaleX = overviewWidth / bounds.width;
+      const stageScaleY = overviewHeight / bounds.height;
+      const tileCache = new Map();
+      const maxMidResolutionCache = 24;
+      const maxFullResolutionCache = 8;
+      let drawingColor = drawingColorInput.value;
+      let drawingLineWidthWorld = Number(drawingWidthInput.value);
+      const drawings = [];
+      let zoom = 0.1;
+      let panX = 0;
+      let panY = 0;
+      let fitZoom = 0.1;
+      let dragging = false;
+      let drawing = false;
+      let drawMode = false;
+      let drawingTool = "draw";
+      let activePath = null;
+      let gestureBefore = null;
+      let gestureChanged = false;
+      const undoStack = [];
+      const redoStack = [];
+      let lastPointer = null;
+      let renderQueued = false;
+      let lastAppliedZoom = zoom;
+
+      stage.style.width = `${overviewWidth}px`;
+      stage.style.height = `${overviewHeight}px`;
+      overview.src = map.overview;
+      overview.width = overviewWidth;
+      overview.height = overviewHeight;
+      overview.style.width = `${overviewWidth}px`;
+      overview.style.height = `${overviewHeight}px`;
+
+      function resizeDrawingCanvas() {
+        const pixelRatio = Math.max(1, Math.min(window.devicePixelRatio || 1, 2));
+        drawingCanvas.width = Math.round(overviewWidth * pixelRatio);
+        drawingCanvas.height = Math.round(overviewHeight * pixelRatio);
+        drawingCanvas.style.width = `${overviewWidth}px`;
+        drawingCanvas.style.height = `${overviewHeight}px`;
+        drawingContext.setTransform(pixelRatio, 0, 0, pixelRatio, 0, 0);
+        redrawDrawings();
+      }
+
+      function redrawDrawings() {
+        drawingContext.clearRect(0, 0, overviewWidth, overviewHeight);
+        drawingContext.strokeStyle = drawingColor;
+        drawingContext.fillStyle = drawingColor;
+        drawingContext.lineWidth = drawingLineWidthWorld * ((stageScaleX + stageScaleY) / 2);
+        drawingContext.lineCap = "round";
+        drawingContext.lineJoin = "round";
+
+        for (const path of drawings) {
+          if (!path.length) continue;
+          if (path.length === 1) {
+            drawingContext.beginPath();
+            drawingContext.arc(path[0].x, path[0].y, drawingContext.lineWidth / 2, 0, Math.PI * 2);
+            drawingContext.fill();
+            continue;
+          }
+
+          drawingContext.beginPath();
+          drawingContext.moveTo(path[0].x, path[0].y);
+          for (let index = 1; index < path.length; index += 1) {
+            drawingContext.lineTo(path[index].x, path[index].y);
+          }
+          drawingContext.stroke();
+        }
+      }
+
+      function cloneDrawingPaths(paths = drawings) {
+        return paths.map(path => path.map(point => ({ x: point.x, y: point.y })));
+      }
+
+      function updateHistoryControls() {
+        undoDrawingButton.disabled = undoStack.length === 0;
+        redoDrawingButton.disabled = redoStack.length === 0;
+      }
+
+      function commitDrawingHistory(before) {
+        if (!before) return;
+        undoStack.push(before);
+        if (undoStack.length > 100) undoStack.shift();
+        redoStack.length = 0;
+        updateHistoryControls();
+      }
+
+      function restoreDrawingPaths(paths) {
+        drawings.splice(0, drawings.length, ...cloneDrawingPaths(paths));
+        redrawDrawings();
+        updateHistoryControls();
+      }
+
+      function undoDrawing() {
+        finishDrawingGesture();
+        if (!undoStack.length) return;
+        redoStack.push(cloneDrawingPaths());
+        restoreDrawingPaths(undoStack.pop());
+        showDrawingMessage("Undo");
+      }
+
+      function redoDrawing() {
+        finishDrawingGesture();
+        if (!redoStack.length) return;
+        undoStack.push(cloneDrawingPaths());
+        restoreDrawingPaths(redoStack.pop());
+        showDrawingMessage("Redo");
+      }
+
+      function distanceToSegment(point, start, end) {
+        const dx = end.x - start.x;
+        const dy = end.y - start.y;
+        if (dx === 0 && dy === 0) {
+          return Math.hypot(point.x - start.x, point.y - start.y);
+        }
+        const t = Math.max(0, Math.min(1,
+          ((point.x - start.x) * dx + (point.y - start.y) * dy) / (dx * dx + dy * dy)
+        ));
+        const closestX = start.x + t * dx;
+        const closestY = start.y + t * dy;
+        return Math.hypot(point.x - closestX, point.y - closestY);
+      }
+
+      function eraseDrawingsAt(point) {
+        const radius = Math.max(3, drawingLineWidthWorld * ((stageScaleX + stageScaleY) / 2) * 1.25);
+        const nextPaths = [];
+        let changed = false;
+
+        for (const path of drawings) {
+          if (path.length === 1) {
+            if (Math.hypot(point.x - path[0].x, point.y - path[0].y) > radius) {
+              nextPaths.push(path);
+            } else {
+              changed = true;
+            }
+            continue;
+          }
+
+          let keptSegment = [];
+          for (let index = 0; index < path.length - 1; index += 1) {
+            const start = path[index];
+            const end = path[index + 1];
+            if (distanceToSegment(point, start, end) <= radius) {
+              if (keptSegment.length > 1) nextPaths.push(keptSegment);
+              keptSegment = [];
+              changed = true;
+              continue;
+            }
+            if (!keptSegment.length) keptSegment.push(start);
+            keptSegment.push(end);
+          }
+          if (keptSegment.length > 1) nextPaths.push(keptSegment);
+        }
+
+        if (changed) drawings.splice(0, drawings.length, ...nextPaths);
+        return changed;
+      }
+
+      function finishDrawingGesture() {
+        if (!drawing) return;
+        if (gestureChanged) commitDrawingHistory(gestureBefore);
+        drawing = false;
+        activePath = null;
+        gestureBefore = null;
+        gestureChanged = false;
+        viewport.classList.remove("drawing");
+      }
+
+      function updateToolControl() {
+        const erasing = drawingTool === "erase";
+        eraserToggle.classList.toggle("active", erasing);
+        eraserToggle.textContent = erasing ? "Draw" : "Erase";
+        eraserToggle.title = erasing ? "Switch to drawing" : "Use the eraser";
+      }
+
+      function toggleEraser() {
+        finishDrawingGesture();
+        drawingTool = drawingTool === "erase" ? "draw" : "erase";
+        updateToolControl();
+        showDrawingMessage(drawingTool === "erase" ? "Eraser active" : "Drawing active");
+      }
+
+      function setDrawMode(enabled) {
+        if (!enabled) finishDrawingGesture();
+        drawMode = enabled;
+        drawingCanvas.style.pointerEvents = drawMode ? "auto" : "none";
+        viewport.classList.toggle("drawing-mode", drawMode);
+        drawingTools.hidden = !drawMode;
+        drawingToggle.setAttribute("aria-pressed", String(drawMode));
+        drawingToggle.setAttribute("aria-label", drawMode ? "Close drawing tools" : "Open drawing tools");
+        drawingToggle.textContent = drawMode ? "×" : "✎";
+      }
+
+      function showDrawingMessage(message) {
+        drawingMessage.textContent = message;
+      }
+
+      function clearDrawings() {
+        finishDrawingGesture();
+        if (!drawings.length) return;
+        undoStack.push(cloneDrawingPaths());
+        if (undoStack.length > 100) undoStack.shift();
+        redoStack.length = 0;
+        drawings.length = 0;
+        redrawDrawings();
+        updateHistoryControls();
+        showDrawingMessage("Drawing cleared");
+      }
+
+      function updateDrawingControls() {
+        drawingColorInput.value = drawingColor;
+        drawingWidthInput.value = String(drawingLineWidthWorld);
+        drawingWidthValue.value = String(drawingLineWidthWorld);
+        drawingWidthValue.textContent = String(drawingLineWidthWorld);
+      }
+
+      function sanitizeDrawingPaths(value) {
+        const rawPaths = Array.isArray(value) ? value : value && value.paths;
+        if (!Array.isArray(rawPaths)) throw new Error("The file does not contain drawing paths.");
+
+        return rawPaths
+          .filter(path => Array.isArray(path))
+          .map(path => path
+            .filter(point => point && Number.isFinite(Number(point.x)) && Number.isFinite(Number(point.y)))
+            .map(point => ({
+              x: Math.max(0, Math.min(overviewWidth, Number(point.x))),
+              y: Math.max(0, Math.min(overviewHeight, Number(point.y))),
+            })))
+          .filter(path => path.length > 0);
+      }
+
+      function saveDrawing() {
+        const payload = {
+          format: "iron-sols-atlas-drawing",
+          version: 1,
+          color: drawingColor,
+          lineWidthWorld: drawingLineWidthWorld,
+          paths: drawings,
+        };
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement("a");
+        link.href = url;
+        link.download = "iron-sols-drawing.json";
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 0);
+        showDrawingMessage("Drawing saved");
+      }
+
+      async function loadDrawing(file) {
+        if (!file) return;
+        try {
+          const payload = JSON.parse(await file.text());
+          const loadedPaths = sanitizeDrawingPaths(payload);
+          const before = cloneDrawingPaths();
+          drawings.splice(0, drawings.length, ...loadedPaths);
+
+          if (payload && typeof payload.color === "string" && /^#[0-9a-f]{6}$/i.test(payload.color)) {
+            drawingColor = payload.color;
+          }
+          if (payload && Number.isFinite(Number(payload.lineWidthWorld))) {
+            drawingLineWidthWorld = Math.max(8, Math.min(180, Number(payload.lineWidthWorld)));
+          }
+
+          commitDrawingHistory(before);
+          updateDrawingControls();
+          redrawDrawings();
+          setDrawMode(true);
+          showDrawingMessage(`Loaded ${loadedPaths.length} stroke${loadedPaths.length === 1 ? "" : "s"}`);
+        } catch (error) {
+          showDrawingMessage("Could not load that drawing");
+          console.error(error);
+        } finally {
+          drawingFile.value = "";
+        }
+      }
+
+      function eventToStagePoint(event) {
+        const rect = viewport.getBoundingClientRect();
+        const screenX = event.clientX - rect.left;
+        const screenY = event.clientY - rect.top;
+        return {
+          x: ((screenX - panX) / zoom) * stageScaleX,
+          y: ((screenY - panY) / zoom) * stageScaleY,
+        };
+      }
+
+      resizeDrawingCanvas();
+      updateDrawingControls();
+      updateToolControl();
+      updateHistoryControls();
+
+      drawingToggle.addEventListener("click", () => {
+        setDrawMode(!drawMode);
+        drawingToggle.blur();
+      });
+      drawingColorInput.addEventListener("input", event => {
+        drawingColor = event.target.value;
+        redrawDrawings();
+      });
+      drawingWidthInput.addEventListener("input", event => {
+        drawingLineWidthWorld = Number(event.target.value);
+        updateDrawingControls();
+        redrawDrawings();
+      });
+      undoDrawingButton.addEventListener("click", undoDrawing);
+      redoDrawingButton.addEventListener("click", redoDrawing);
+      eraserToggle.addEventListener("click", toggleEraser);
+      saveDrawingButton.addEventListener("click", saveDrawing);
+      loadDrawingButton.addEventListener("click", () => drawingFile.click());
+      clearDrawingButton.addEventListener("click", clearDrawings);
+      drawingFile.addEventListener("change", event => loadDrawing(event.target.files[0]));
+
+      const localX = worldX => worldX - bounds.minX;
+      const localY = worldY => worldY - bounds.minY;
+
+      function clamp(value, min, max) {
+        return Math.max(min, Math.min(max, value));
+      }
+
+      function detailThreshold() {
+        return 240 / map.tileWidth;
+      }
+
+      function fullResolutionThreshold() {
+        return 0.42;
+      }
+
+      function isDetailMode() {
+        return zoom >= detailThreshold();
+      }
+
+      function clampPan() {
+        const viewportWidth = viewport.clientWidth;
+        const viewportHeight = viewport.clientHeight;
+        const scaledWidth = bounds.width * zoom;
+        const scaledHeight = bounds.height * zoom;
+
+        if (scaledWidth <= viewportWidth) {
+          panX = (viewportWidth - scaledWidth) / 2;
+        } else {
+          panX = clamp(panX, viewportWidth - scaledWidth, 0);
+        }
+
+        if (scaledHeight <= viewportHeight) {
+          panY = (viewportHeight - scaledHeight) / 2;
+        } else {
+          panY = clamp(panY, viewportHeight - scaledHeight, 0);
+        }
+      }
+
+      function reloadEntireMap() {
+        // Throw away every streamed detail image, including images that are
+        // still loading. The small overview remains mounted underneath while
+        // the current viewport is rebuilt from a clean state.
+        overview.style.display = "block";
+
+        for (const entry of tileCache.values()) {
+          entry.needed = false;
+          entry.image.removeAttribute("src");
+          entry.image.remove();
+        }
+        tileCache.clear();
+        renderQueued = false;
+        requestAnimationFrame(renderVisibleTiles);
+      }
+
+      function applyTransform(options = {}) {
+        const returnedFromSuperZoom =
+          lastAppliedZoom >= fullResolutionThreshold() &&
+          zoom < fullResolutionThreshold();
+        lastAppliedZoom = zoom;
+
+        clampPan();
+        stage.style.transform = `translate3d(${panX}px, ${panY}px, 0) scale(${zoom / stageScaleX}, ${zoom / stageScaleY})`;
+        // Keep the complete low-resolution map underneath streamed tiles.
+        // If a detail request is delayed or fails, the map never turns into
+        // black gaps or isolated strips.
+        overview.style.display = "block";
+
+        if (returnedFromSuperZoom && !options.skipReload) {
+          reloadEntireMap();
+        } else {
+          queueTileRender();
+        }
+      }
+
+      function queueTileRender() {
+        if (renderQueued) return;
+        renderQueued = true;
+        requestAnimationFrame(() => {
+          renderQueued = false;
+          renderVisibleTiles();
+        });
+      }
+
+      function visibleWorldRect(padding = 1) {
+        const width = viewport.clientWidth / zoom;
+        const height = viewport.clientHeight / zoom;
+        const left = -panX / zoom - padding * map.tileWidth;
+        const top = -panY / zoom - padding * map.tileHeight;
+        return {
+          left,
+          top,
+          right: left + width + padding * 2 * map.tileWidth,
+          bottom: top + height + padding * 2 * map.tileHeight,
+        };
+      }
+
+      function intersects(tile, rect) {
+        const x = localX(tile.x);
+        const y = localY(tile.y);
+        return x < rect.right && x + map.tileWidth > rect.left &&
+          y < rect.bottom && y + map.tileHeight > rect.top;
+      }
+
+      function desiredSource(tile) {
+        return zoom >= fullResolutionThreshold() ? tile.src : tile.midSrc;
+      }
+
+      function setTileSource(entry, source) {
+        entry.src = source;
+        entry.loaded = false;
+        entry.loading = true;
+        entry.failed = false;
+        entry.retries = 0;
+        entry.image.removeAttribute("src");
+        entry.image.src = source;
+      }
+
+      function makeTileEntry(tile, key) {
+        const image = document.createElement("img");
+        const entry = {
+          key,
+          tile,
+          image,
+          src: "",
+          loaded: false,
+          loading: false,
+          failed: false,
+          retries: 0,
+          needed: false,
+          lastUsed: 0,
+        };
+
+        image.className = "tile";
+        image.alt = "";
+        image.decoding = "async";
+        image.loading = "eager";
+        image.draggable = false;
+        image.width = Math.max(1, Math.round(map.tileWidth * stageScaleX));
+        image.height = Math.max(1, Math.round(map.tileHeight * stageScaleY));
+        image.style.width = `${map.tileWidth * stageScaleX}px`;
+        image.style.height = `${map.tileHeight * stageScaleY}px`;
+        image.style.left = `${localX(tile.x) * stageScaleX}px`;
+        image.style.top = `${localY(tile.y) * stageScaleY}px`;
+
+        image.addEventListener("load", () => {
+          entry.loaded = true;
+          entry.loading = false;
+          entry.failed = false;
+          entry.retries = 0;
+          if (entry.needed) queueTileRender();
+        });
+
+        image.addEventListener("error", () => {
+          entry.loaded = false;
+          entry.loading = false;
+          entry.failed = true;
+
+          if (!entry.needed || entry.retries >= 3) return;
+          const retrySource = entry.src;
+          const delay = 180 * (entry.retries + 1);
+          entry.retries += 1;
+          setTimeout(() => {
+            if (entry.needed && entry.src === retrySource) {
+              setTileSource(entry, retrySource);
+            }
+          }, delay);
+        });
+
+        tileCache.set(key, entry);
+        return entry;
+      }
+
+      function ensureTile(tile, key) {
+        const entry = tileCache.get(key) || makeTileEntry(tile, key);
+        const source = desiredSource(tile);
+        entry.needed = true;
+        entry.lastUsed = performance.now();
+
+        if (entry.src !== source || entry.failed) {
+          setTileSource(entry, source);
+        }
+
+        if (entry.image.parentNode !== tileLayer) {
+          tileLayer.appendChild(entry.image);
+        }
+        return entry;
+      }
+
+      function pruneTileCache(maxEntries) {
+        if (tileCache.size <= maxEntries) return;
+
+        const candidates = [...tileCache.values()]
+          .filter(entry => !entry.needed)
+          .sort((a, b) => a.lastUsed - b.lastUsed);
+
+        for (const entry of candidates) {
+          if (tileCache.size <= maxEntries) break;
+          entry.image.removeAttribute("src");
+          entry.image.remove();
+          tileCache.delete(entry.key);
+        }
+      }
+
+      function renderVisibleTiles() {
+        if (!isDetailMode()) {
+          for (const entry of tileCache.values()) {
+            entry.needed = false;
+            entry.image.remove();
+          }
+          pruneTileCache(0);
+          return;
+        }
+
+        const rect = visibleWorldRect(zoom >= fullResolutionThreshold() ? 0.15 : 0.35);
+        const visibleKeys = new Set();
+
+        for (const entry of tileCache.values()) entry.needed = false;
+
+        for (const tile of map.tiles) {
+          if (!intersects(tile, rect)) continue;
+          const key = `${tile.cellX}:${tile.cellY}`;
+          visibleKeys.add(key);
+          ensureTile(tile, key);
+        }
+
+        for (const [key, entry] of tileCache) {
+          if (!visibleKeys.has(key)) {
+            entry.needed = false;
+            entry.image.remove();
+          }
+        }
+
+        // Full-resolution screenshots are expensive to keep decoded. When we
+        // return to screen-tile mode, release stale full-resolution entries
+        // instead of allowing them to survive in the cache.
+        if (zoom < fullResolutionThreshold()) {
+          for (const [key, entry] of tileCache) {
+            if (!entry.needed && entry.src === entry.tile.src) {
+              entry.image.removeAttribute("src");
+              entry.image.remove();
+              tileCache.delete(key);
+            }
+          }
+        }
+
+        const cacheLimit = zoom >= fullResolutionThreshold()
+          ? maxFullResolutionCache
+          : maxMidResolutionCache;
+        pruneTileCache(cacheLimit);
+      }
+
+      function zoomAt(factor, screenX, screenY, knownWorldX = null, knownWorldY = null) {
+        const oldZoom = zoom;
+        const worldX = knownWorldX === null ? (screenX - panX) / oldZoom : localX(knownWorldX);
+        const worldY = knownWorldY === null ? (screenY - panY) / oldZoom : localY(knownWorldY);
+        zoom = clamp(oldZoom * factor, Math.max(fitZoom * .72, .006), 2.5);
+        panX = screenX - worldX * zoom;
+        panY = screenY - worldY * zoom;
+        applyTransform();
+      }
+
+      function fitMap(options = {}) {
+        const margin = 44;
+        fitZoom = Math.min(
+          (viewport.clientWidth - margin * 2) / bounds.width,
+          (viewport.clientHeight - margin * 2) / bounds.height
+        );
+        zoom = clamp(fitZoom, .006, 2.5);
+        panX = (viewport.clientWidth - bounds.width * zoom) / 2;
+        panY = (viewport.clientHeight - bounds.height * zoom) / 2;
+        applyTransform(options);
+      }
+
+      function homeMap() {
+        // Keyboard 0 always performs an explicit clean reload, even if the
+        // automatic zoom-transition detector already ran.
+        fitMap({ skipReload: true });
+        reloadEntireMap();
+      }
+
+      viewport.addEventListener("pointerdown", event => {
+        if (event.button !== 0) return;
+
+        // Shift reverses the current tool: it temporarily pans while the
+        // pencil/eraser is active, and temporarily draws while in map mode.
+        const drawingGesture = drawMode !== event.shiftKey;
+        if (drawingGesture) {
+          const point = eventToStagePoint(event);
+          drawing = true;
+          dragging = false;
+          gestureBefore = cloneDrawingPaths();
+          gestureChanged = false;
+          if (drawingTool === "erase") {
+            activePath = null;
+            gestureChanged = eraseDrawingsAt(point);
+          } else {
+            activePath = [point];
+            drawings.push(activePath);
+            gestureChanged = true;
+          }
+          viewport.classList.add("drawing");
+          viewport.setPointerCapture(event.pointerId);
+          redrawDrawings();
+          return;
+        }
+
+        dragging = true;
+        lastPointer = { x: event.clientX, y: event.clientY };
+        viewport.classList.add("dragging");
+        viewport.setPointerCapture(event.pointerId);
+      });
+
+      viewport.addEventListener("pointermove", event => {
+        if (drawing) {
+          const nextPoint = eventToStagePoint(event);
+          if (drawingTool === "erase") {
+            if (eraseDrawingsAt(nextPoint)) {
+              gestureChanged = true;
+              redrawDrawings();
+            }
+            return;
+          }
+          const previousPoint = activePath[activePath.length - 1];
+          const dx = nextPoint.x - previousPoint.x;
+          const dy = nextPoint.y - previousPoint.y;
+          if (dx * dx + dy * dy >= 0.25) {
+            activePath.push(nextPoint);
+            redrawDrawings();
+          }
+          return;
+        }
+
+        if (!dragging) return;
+        panX += event.clientX - lastPointer.x;
+        panY += event.clientY - lastPointer.y;
+        lastPointer = { x: event.clientX, y: event.clientY };
+        applyTransform();
+      });
+
+      function stopDragging(event) {
+        finishDrawingGesture();
+        dragging = false;
+        lastPointer = null;
+        viewport.classList.remove("dragging");
+        if (event && viewport.hasPointerCapture(event.pointerId)) viewport.releasePointerCapture(event.pointerId);
+      }
+
+      viewport.addEventListener("pointerup", stopDragging);
+      viewport.addEventListener("pointercancel", stopDragging);
+      viewport.addEventListener("wheel", event => {
+        event.preventDefault();
+        const rect = viewport.getBoundingClientRect();
+        const factor = event.deltaY < 0 ? 1.18 : 1 / 1.18;
+        zoomAt(factor, event.clientX - rect.left, event.clientY - rect.top);
+      }, { passive: false });
+
+      window.addEventListener("keydown", event => {
+        const modifier = event.ctrlKey || event.metaKey;
+        if (modifier && event.key.toLowerCase() === "z") {
+          event.preventDefault();
+          if (event.shiftKey) redoDrawing();
+          else undoDrawing();
+          return;
+        }
+        if (modifier && event.key.toLowerCase() === "y") {
+          event.preventDefault();
+          redoDrawing();
+          return;
+        }
+        if (event.key === "0") homeMap();
+        if (event.key.toLowerCase() === "d") setDrawMode(!drawMode);
+        if (event.key.toLowerCase() === "e") {
+          if (!drawMode) setDrawMode(true);
+          toggleEraser();
+        }
+        if (event.key.toLowerCase() === "c" && !modifier) clearDrawings();
+        if (event.key === "Escape") setDrawMode(false);
+        if (event.key === "+" || event.key === "=") zoomAt(1.35, viewport.clientWidth / 2, viewport.clientHeight / 2);
+        if (event.key === "-") zoomAt(1 / 1.35, viewport.clientWidth / 2, viewport.clientHeight / 2);
+      });
+
+      window.addEventListener("resize", () => {
+        resizeDrawingCanvas();
+        fitMap();
+      });
+
+      fitMap();
+    })();
+  </script>
+</body>
+</html>
